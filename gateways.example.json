@@ -1,0 +1,19 @@
+{
+  "gateways": [
+    {
+      "id": "local",
+      "label": "本机 Magpie",
+      "base": "http://127.0.0.1:3425",
+      "providerIds": [],
+      "deviceIds": []
+    },
+    {
+      "id": "remote-mac",
+      "label": "远程 Mac",
+      "base": "https://REPLACE_WITH_REMOTE_HOST:3425",
+      "providerIds": ["magpie-6eda1cd3"],
+      "deviceIds": ["REPLACE_WITH_AGENT_DEVICE_ID"],
+      "headers": { "Authorization": "Bearer REPLACE_WITH_TOKEN" }
+    }
+  ]
+}

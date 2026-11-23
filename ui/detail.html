@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: light dark; --ok: #2f9e62; --warn: #d9962b; --bad: var(--color-text-danger, #d64545); --panel-bg: var(--color-background-primary, light-dark(#f7f7f5, #202020)); --text-primary: var(--color-text-primary, light-dark(#1a1a1a, #ededed)); --border-default: var(--color-border-primary, light-dark(#e4e4e0, #424242)); }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font: 13px/1.5 var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  color: var(--text-primary, #1a1a1a);
+  background: var(--panel-bg, #f7f7f5);
+  padding: 12px;
+}
+button { font: inherit; }
+button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+button:disabled { opacity: .4; cursor: wait; }
+#list { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--border-default, #e4e4e0); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: inherit; padding: 3px 12px; cursor: pointer; font: inherit; }
+.seg button.on { background: var(--border-default, #e4e4e0); font-weight: 600; }
+.actions { display: flex; gap: 4px; }
+button.icon { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 14px; border-radius: 6px; padding: 2px 7px; opacity: .7; }
+button.icon:hover, button.icon[aria-pressed="true"] { opacity: 1; background: var(--border-default, #e4e4e0); }
+.status { color: var(--bad); margin-bottom: 8px; overflow-wrap: anywhere; }
+.status:empty { display: none; }
+.route { border: 1px solid var(--border-default, #e4e4e0); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+.route .chain { font-weight: 600; overflow-wrap: anywhere; }
+.route .meta { font-size: 11px; opacity: .65; margin-top: 3px; overflow-wrap: anywhere; }
+.route .fallback { color: var(--warn); font-size: 11px; margin-top: 4px; }
+.card { border: 1px solid var(--border-default, #e4e4e0); border-radius: 10px; padding: 9px 10px; margin-bottom: 8px; }
+.card.err { border-color: var(--bad); }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.title { font-weight: 600; }
+.plan { font-size: 11px; opacity: .65; margin-left: 5px; font-weight: 400; }
+.badge { font-size: 10.5px; padding: 0 6px; border-radius: 8px; background: var(--ok); color: #fff; white-space: nowrap; }
+.badge.route { background: var(--border-default, #e4e4e0); color: inherit; }
+.user { opacity: .6; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gw { font-size: 10.5px; opacity: .55; margin-top: 1px; }
+.win { margin-top: 8px; }
+.row { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; }
+.row .pct { font-variant-numeric: tabular-nums; font-weight: 600; }
+.track { height: 6px; border-radius: 3px; background: var(--border-default, #e4e4e0); margin: 3px 0; overflow: hidden; }
+.fill { height: 100%; border-radius: 3px; background: var(--ok); }
+.fill.warn { background: var(--warn); }
+.fill.bad { background: var(--bad); }
+.reset { font-size: 11px; opacity: .6; }
+.msg { margin-top: 6px; color: var(--bad); font-size: 11.5px; word-break: break-word; }
+.empty { opacity: .6; text-align: center; padding: 24px 0; }
+.foot { opacity: .5; font-size: 11px; text-align: center; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="seg" role="group" aria-label="视角">
+    <button id="mode-used" class="on">已用</button>
+    <button id="mode-left">剩余</button>
+  </div>
+  <div class="actions">
+    <button id="mask" class="icon" title="隐藏账号邮箱" aria-pressed="false">👁</button>
+    <button id="refresh" class="icon" title="刷新">⟳</button>
+  </div>
+</header>
+<div id="status" class="status" role="status" aria-live="polite"></div>
+<main id="list"><div class="empty">正在连接 Magpie…</div></main>
+<footer id="foot" class="foot"></footer>
+<script type="module">
+(async function () {
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('mu:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('mu:' + k, JSON.stringify(v)); } catch {} }
+  };
+  let mode = store.get('mode', 'used');   // used | left
+  let masked = store.get('masked', false);
+  let data = store.get('snapshot', null);  // 本地快照，打开即显示
+  if (data) data = Object.assign({}, data, { ok: false, error: '正在刷新' });
+  let timer = null;
+  let app = null;
+  let loading = false;
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  function maskEmail(u) {
+    const m = /^(.)(.*)(.)@(.+)$/.exec(u);
+    return m ? m[1] + '***' + m[3] + '@' + m[4] : (u.length > 2 ? u[0] + '***' + u[u.length - 1] : u);
+  }
+
+  function countdown(iso) {
+    const t = Date.parse(iso);
+    if (!t) return '';
+    let s = Math.round((t - Date.now()) / 1000);
+    if (s <= 0) return '即将重置';
+    const d = Math.floor(s / 86400); s -= d * 86400;
+    const h = Math.floor(s / 3600); s -= h * 3600;
+    const m = Math.floor(s / 60);
+    return (d ? d + ' 天 ' : '') + (h ? h + ' 小时 ' : '') + (!d ? m + ' 分钟' : '') + '后重置';
+  }
+
+  function resetText(iso) {
+    const t = Date.parse(iso);
+    if (!t) return '';
+    return t <= Date.now() ? '已到重置时间' : countdown(iso);
+  }
+
+  function winHtml(w) {
+    const used = w.used != null ? w.used : (w.remaining != null ? 100 - w.remaining : null);
+    const left = w.remaining != null ? w.remaining : (used != null ? 100 - used : null);
+    if (used == null) return '<div class="win"><div class="row"><span>' + esc(w.name) + '</span><span>' + esc(w.display || '—') + '</span></div></div>';
+    const shown = Math.round(mode === 'used' ? used : left);
+    const cls = used >= 90 ? 'bad' : used >= 70 ? 'warn' : '';
+    return '<div class="win"><div class="row"><span>' + esc(w.name) + '</span><span class="pct">' + shown + '%</span></div>' +
+      '<div class="track"><div class="fill ' + cls + '" style="width:' + shown + '%"></div></div>' +
+      (w.resetsAt ? '<div class="reset">' + esc(resetText(w.resetsAt)) + '</div>' : '') + '</div>';
+  }
+
+  function routeHtml(route) {
+    if (!route) return '';
+    const chain = [];
+    if (route.group && route.group.name) chain.push(route.group.name);
+    if (route.rule && route.rule.use) chain.push(String(route.rule.use).replace(/^group\//, ''));
+    if (route.served || route.model) chain.push(route.served || route.model);
+    const title = chain.length ? chain.join(' → ') : (route.model || '未知路由');
+    const meta = [];
+    if (route.provider) {
+      const provider = (data && data.entries || []).find((e) => String(e.provider).toLowerCase() === String(route.provider).toLowerCase());
+      meta.push(provider ? provider.name : (route.providerName || route.provider));
+    }
+    if (route.account) meta.push(masked ? maskEmail(route.account) : route.account);
+    if (route.plan) meta.push(route.plan);
+    if (route.fallbackCount) meta.push('回退 ' + route.fallbackCount + ' 次');
+    if (route.time) meta.push(new Date(route.time).toLocaleString());
+    const failed = route.status != null && route.status >= 400
+      ? '<div class="fallback">最近请求失败：HTTP ' + route.status + '</div>' : '';
+    return '<section class="route"><div class="chain">全局最近请求：' + esc(title) + '</div>' +
+      '<div class="meta">' + meta.map(esc).join(' · ') + '</div>' + failed + '</section>';
+  }
+
+  function cardHtml(e) {
+    const user = e.user ? (masked ? maskEmail(e.user) : e.user) : '';
+    const route = data && data.latestRoute;
+    const routed = route && String(e.provider).toLowerCase() === String(route.provider || '').toLowerCase() &&
+      (route.account
+        ? String(e.user || '').toLowerCase() === String(route.account).toLowerCase()
+        : (data.entries || []).filter((x) => String(x.provider).toLowerCase() === String(e.provider).toLowerCase()).length === 1);
+    return '<section class="card' + (e.error ? ' err' : '') + '">' +
+      '<div class="head"><span class="title">' + esc(e.name) + (e.plan ? '<span class="plan">' + esc(e.plan) + '</span>' : '') + '</span>' +
+      (routed ? '<span class="badge route">最近路由</span>' : e.last ? '<span class="badge">最近使用</span>' : '') + '</div>' +
+      (user ? '<div class="user">' + esc(user) + '</div>' : '') +
+      (e.gatewayLabel ? '<div class="gw">' + esc(e.gatewayLabel) + '</div>' : '') +
+      (e.error ? '<div class="msg">' + esc(e.error) + '</div>' : (e.windows || []).map(winHtml).join('')) +
+      (e.balance ? '<div class="win row"><span>余额</span><span class="pct">' + esc(e.balance) + '</span></div>' : '') +
+      '</section>';
+  }
+
+  function render() {
+    $('mode-used').classList.toggle('on', mode === 'used');
+    $('mode-left').classList.toggle('on', mode === 'left');
+    $('mask').setAttribute('aria-pressed', String(masked));
+    const baseStatus = data && !data.ok ? (data.error || '刷新失败') + (data.entries.length ? '（显示缓存数据）' : '') : '';
+    const gatewayStatus = (data && data.gatewayErrors || []).map((x) => x.label + '：' + x.error).join('；');
+    $('status').textContent = [baseStatus, gatewayStatus].filter(Boolean).join('｜');
+    const entries = (data && data.entries) || [];
+    $('list').innerHTML = routeHtml(data && data.latestRoute) +
+      (entries.length ? entries.map(cardHtml).join('') :
+        '<div class="empty">' + (data ? '没有账号数据' : '加载中…') + '</div>');
+    $('foot').textContent = data && data.updatedAt ? '最后成功更新：' + new Date(data.updatedAt).toLocaleString() : '';
+  }
+
+  async function request() {
+    const result = await app.callServerTool({ name: 'magpie_usage', arguments: {} }, { timeout: 20000 });
+    const text = result.content?.find((block) => block.type === 'text')?.text;
+    if (result.isError) throw new Error(text || '读取额度失败');
+    const payload = result.structuredContent || (text ? JSON.parse(text) : result);
+    if (!Array.isArray(payload.accounts)) throw new Error('未返回额度数据');
+    return {
+      ok: !payload.stale,
+      error: payload.stale ? '连接失败' : null,
+      entries: payload.accounts,
+      updatedAt: payload.updatedAt,
+      gatewayErrors: Array.isArray(payload.gatewayErrors) ? payload.gatewayErrors : [],
+      latestRoute: payload.latestRoute || null
+    };
+  }
+
+  async function load(force) {
+    if (!app || loading) return;
+    loading = true;
+    $('refresh').disabled = true;
+    $('refresh').setAttribute('aria-busy', 'true');
+    try {
+      const result = await request(force);
+      data = !result.ok && !result.entries.length && data ?
+        Object.assign({}, result, {
+          entries: data.entries,
+          updatedAt: data.updatedAt,
+          latestRoute: result.latestRoute || data.latestRoute
+        }) : result;
+      if (data.ok) store.set('snapshot', data);
+    } catch (e) {
+      data = Object.assign({ entries: [], updatedAt: null }, data, { ok: false, error: String((e && e.message) || e) });
+    } finally {
+      loading = false;
+      $('refresh').disabled = false;
+      $('refresh').setAttribute('aria-busy', 'false');
+    }
+    render();
+  }
+
+  function schedule() {
+    clearInterval(timer);
+    if (!document.hidden) timer = setInterval(() => load(false), 30000);
+  }
+
+  $('mode-used').onclick = () => { mode = 'used'; store.set('mode', mode); render(); };
+  $('mode-left').onclick = () => { mode = 'left'; store.set('mode', mode); render(); };
+  $('mask').onclick = () => { masked = !masked; store.set('masked', masked); render(); };
+  $('refresh').onclick = () => load(true);
+  document.addEventListener('visibilitychange', () => { schedule(); if (!document.hidden) load(false); });
+
+  render();
+  try {
+    const { App } = await import('@modelcontextprotocol/ext-apps');
+    app = new App({ name: 'Magpie 用量', version: '1.4.4' }, {}, { autoResize: true });
+    const applyTheme = () => {
+      const context = app.getHostContext() || {};
+      if (context.theme) {
+        document.documentElement.style.colorScheme = context.theme;
+        document.documentElement.dataset.theme = context.theme;
+      }
+      for (const [name, value] of Object.entries(context.styles?.variables || {})) {
+        if (typeof value === 'string') document.documentElement.style.setProperty(name, value);
+      }
+    };
+    app.onhostcontextchanged = applyTheme;
+    app.onteardown = async () => { clearInterval(timer); return {}; };
+    await app.connect();
+    applyTheme();
+    await load(false);
+    schedule();
+  } catch (error) {
+    app = null;
+    data = Object.assign({ entries: [], updatedAt: null }, data, { ok: false, error: '用量卡片连接失败：' + String(error.message || error) });
+    render();
+  }
+})();
+</script>
+</body>
+</html>

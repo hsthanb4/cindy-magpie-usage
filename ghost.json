@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 3,
+  "minCindyVersion": "0.1.137",
+  "id": "magpie-usage",
+  "name": "Magpie Usage",
+  "version": "1.5.1",
+  "description": "在输入框状态栏胶囊与快捷卡片中查看 Magpie 网关各账号的额度、当前会话实际路由与重置时间；开源，欢迎提交 PR。",
+  "whenToUse": "用户询问 Magpie 网关各账号（Claude、Codex、Kiro、Antigravity 等）还剩多少额度、何时重置、哪个账号已用尽时调用 magpie_usage 查询。",
+  "readme": {
+    "en": "README.en.md",
+    "zh-CN": "README.md"
+  },
+  "releaseNotes": "相较 1.5.0：源码开源至 https://github.com/hsthanb4/cindy-magpie-usage，插件详情页新增中英文项目介绍和贡献说明，欢迎提交 Issue / PR；功能不变。",
+  "author": "hsthanb4",
+  "entry": "main.js",
+  "icon": "icon.png",
+  "tools": [
+    {
+      "name": "magpie_usage",
+      "description": "读取本机 Magpie 网关各账号的额度窗口（已用/剩余百分比、重置时间）、余额与最近一次路由（分组、实际账号、回退次数）。可按 provider 过滤。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "可选：只返回该 provider（如 claude、codex、kiro、antigravity）"
+          }
+        }
+      }
+    }
+  ],
+  "node": {
+    "entry": "node/worker.cjs",
+    "protocol": "json-rpc-stdio",
+    "lifecycle": "on-demand",
+    "idleTimeoutSeconds": 120
+  },
+  "mcpApps": {
+    "ui": {
+      "resources": [
+        {
+          "uri": "ui://magpie-usage/detail",
+          "file": "ui/detail.html"
+        }
+      ],
+      "tools": {
+        "magpie_usage": {
+          "visibility": [
+            "app",
+            "model"
+          ]
+        }
+      }
+    },
+    "host": {
+      "views": [
+        {
+          "id": "detail-view",
+          "title": "Magpie 用量",
+          "resourceUri": "ui://magpie-usage/detail",
+          "scope": "global"
+        }
+      ],
+      "contributions": [
+        {
+          "id": "usage-pill",
+          "title": "Magpie …",
+          "position": "statusbar",
+          "kind": "button",
+          "view": "detail-view"
+        },
+        {
+          "id": "usage-popover",
+          "title": "用量卡片",
+          "position": "statusbar",
+          "view": "detail-view",
+          "presentation": "popover"
+        }
+      ]
+    }
+  }
+}
