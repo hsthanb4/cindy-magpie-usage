@@ -2,6 +2,9 @@
 
 See Magpie gateway account quotas, the actual route used by the current task, and reset times in Cindy's status bar and usage card.
 
+Repository: https://github.com/hsthanb4/cindy-magpie-usage
+Issues and PRs are welcome.
+
 [中文](README.md)
 
 ## Features

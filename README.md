@@ -2,6 +2,9 @@
 
 在 Cindy 的状态栏和用量卡片里查看 Magpie 网关各账号的额度、当前会话实际路由和重置时间。
 
+仓库：https://github.com/hsthanb4/cindy-magpie-usage
+欢迎提交 Issue 和 PR。
+
 [English](README.en.md)
 
 ## 功能
